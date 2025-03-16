@@ -1,0 +1,105 @@
+networks:
+  kafka:
+    name: kafka
+
+services:
+  kafka:
+    image: "apache/kafka:3.9.0"
+    ports:
+      - "9092:9092"
+      - "19092:19092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT_HOST://localhost:9092,PLAINTEXT://kafka:19092'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'CONTROLLER://:29093,PLAINTEXT_HOST://:9092,PLAINTEXT://:19092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+    networks:
+      - kafka
+    healthcheck:
+      test: /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --topic traces --create --if-not-exists && /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka:9092 || exit 1
+      interval: 1s
+      timeout: 60s
+      retries: 60
+
+  jobmanager:
+    image: flink:1.20.1-java17
+    ports:
+      - "8081:8081"
+      - "6123:6123"
+    command: standalone-job --job-classname com.stefanoboriero.metricsgenerator.MetricsGenerator
+    volumes:
+      - ./target:/opt/flink/usrlib
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        parallelism.default: 2
+    networks:
+      - kafka
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.122.1
+    ports:
+      - 4317:4317  # otlp grpc
+      - 4318:4318  # otlp http
+      - 8888:8888 # monitoring
+    command: --config=/etc/otelcol/config.yaml
+    volumes:
+      - ./services/otelcol/config.yaml:/etc/otelcol/config.yaml
+    depends_on:
+      kafka:
+        condition: service_healthy
+        restart: true
+    networks:
+      - kafka
+
+  taskmanager:
+    image: flink:1.20.1-java17
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    scale: 1
+    volumes:
+      - /home/stefano/personal/flink-metrics-generator/target:/opt/flink/usrlib
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 10
+        parallelism.default: 2
+    networks:
+      - kafka
+  mimir:
+    image: grafana/mimir:2.12.0
+    container_name: mimir
+    ports:
+      - 9090:9090
+    restart: unless-stopped
+    command: --config.file=/etc/mimir.yaml
+    volumes:
+      - ./services/mimir/mimir.yaml:/etc/mimir.yaml
+      - ./services/mimir/alertmanager.yaml:/etc/alertmanager-fallback-config.yaml
+    networks:
+      - kafka
+  grafana:
+    image: grafana/grafana:11.0.1
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+    volumes:
+      - ./services/grafana/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      # - ./services/grafana/grafana.ini:/etc/grafana/grafana.ini
+    depends_on:
+      - mimir
+    networks:
+      - kafka
