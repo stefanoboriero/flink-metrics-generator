@@ -235,7 +235,7 @@ public class MetricsGenerator {
                     compositeKey.spanKind,
                     compositeKey.statusCode,
                     accumulator.count.doubleValue(),
-                    accumulator.totalLatencyNanoSeconds() / 10.0e9);
+                    accumulator.totalLatencyNanoSeconds() / 1.0e9);
             collector.collect(sample);
         }
     }
