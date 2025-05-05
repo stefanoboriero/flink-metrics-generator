@@ -25,9 +25,9 @@ we would expect in production. There's going to be:
 - 1 Mimir instance to store the metrics produces
 - 1 Grafana instance to display the metrics
 
-## Sending httpServerMetricsAccumulator
+## Sending data
 
-We can use the OpenTelemetry collector [telemetrygen](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/cmd/telemetrygen) tool to generate sample OTEL httpServerMetricsAccumulator.
+We can use the OpenTelemetry collector [telemetrygen](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/cmd/telemetrygen) tool to generate sample OTEL data.
 
 ```bash
 telemetrygen traces --otlp-insecure --otlp-http --traces 1
